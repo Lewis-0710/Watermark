@@ -7,6 +7,9 @@
 .buildlog/
 .history
 
+# TRAE / IDE generated artifacts (not part of the Flutter project)
+.trae-html-share-packages/
+
 
 
 # Flutter repo-specific
