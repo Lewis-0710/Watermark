@@ -1,0 +1,7 @@
+platform :osx, '11.0'
+
+target 'Runner' do
+  use_frameworks! :linkage => :static
+
+  # Flutter plugins (auto-injected via flutter pub get)
+end
