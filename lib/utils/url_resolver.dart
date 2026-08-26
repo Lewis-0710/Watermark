@@ -11,26 +11,27 @@ class ResolvedMedia {
 
 /// 链接解析器：从抖音/B站分享链接提取无水印媒体并下载到本地
 class UrlResolver {
-  static final Dio _dio = Dio(BaseOptions(
-    connectTimeout: const Duration(seconds: 15),
-    receiveTimeout: const Duration(seconds: 60),
-    headers: {
-      'User-Agent':
-          'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) '
-          'AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1',
-      'Referer': 'https://www.douyin.com/',
-    },
-  ));
+  static Dio _createDio() => Dio(BaseOptions(
+        connectTimeout: const Duration(seconds: 15),
+        receiveTimeout: const Duration(seconds: 60),
+        headers: {
+          'User-Agent':
+              'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) '
+              'AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1',
+          'Referer': 'https://www.douyin.com/',
+        },
+      ));
 
-  /// 从分享文本中提取 URL（支持被 backtick 包裹的情况）
+  /// 从分享文本中提取 URL（支持被 backtick 包裹、带中文标点的情况）
   static String? extractUrl(String text) {
     final cleaned = text.replaceAll('`', '').trim();
-    final regex = RegExp(r'https?://[^\s，。、,\)]+');
+    // 允许包含引号、中文标点、括号等
+    final regex = RegExp(r'https?://[^\s，。、,)"\'\']+');
     final match = regex.firstMatch(cleaned);
     return match?.group(0);
   }
 
-  /// 解析并下载媒体，返回本地文件路径列表
+  /// 解析并下载媒体
   static Future<List<ResolvedMedia>> resolve(String inputUrl) async {
     final url = extractUrl(inputUrl) ?? inputUrl.trim();
     if (url.isEmpty) throw Exception('未检测到有效链接');
@@ -42,7 +43,7 @@ class UrlResolver {
       case 'bilibili':
         return _resolveBilibili(url);
       case 'youtube':
-        throw Exception('YouTube 暂不支持直接解析，请用本地文件');
+        throw Exception('YouTube 暂不支持直接解析');
       default:
         throw Exception('不支持的平台，请粘贴抖音/B站链接');
     }
@@ -65,8 +66,44 @@ class UrlResolver {
   // ==================== 抖音 ====================
 
   static Future<List<ResolvedMedia>> _resolveDouyin(String shareUrl) async {
-    // 1. 跟随短链接重定向，获取真实 URL
-    final resp = await _dio.get(
+    // 提取短链 code
+    final codeMatch = RegExp(r'douyin\.com/([A-Za-z0-9_\-]+)').firstMatch(shareUrl) ??
+        RegExp(r'iesdouyin\.com/([A-Za-z0-9_\-/]+)').firstMatch(shareUrl);
+    final shortCode = codeMatch?.group(1) ?? '';
+
+    // 策略 1：尝试跟随重定向
+    try {
+      return await _resolveDouyinViaRedirect(shareUrl);
+    } catch (e) {
+      debugPrint('抖音重定向解析失败: $e');
+    }
+
+    // 策略 2：直接用短链 code 调 API
+    try {
+      if (shortCode.isNotEmpty) {
+        return await _resolveDouyinViaApi(shortCode);
+      }
+    } catch (e) {
+      debugPrint('抖音API直接解析失败: $e');
+    }
+
+    // 策略 3：尝试 iesdouyin 分享页
+    try {
+      if (shortCode.isNotEmpty) {
+        return await _resolveDouyinSharePage(shortCode);
+      }
+    } catch (e) {
+      debugPrint('抖音分享页解析失败: $e');
+    }
+
+    throw Exception('所有解析策略均失败，请检查网络或稍后重试');
+  }
+
+  /// 策略 1：跟随重定向
+  static Future<List<ResolvedMedia>> _resolveDouyinViaRedirect(
+      String shareUrl) async {
+    final dio = _createDio();
+    final resp = await dio.get(
       shareUrl,
       options: Options(
         followRedirects: true,
@@ -76,14 +113,12 @@ class UrlResolver {
     );
     final realUrl = resp.realUri.toString();
 
-    // 2. 从 URL 中提取视频 ID
     final idMatch = RegExp(r'/video/(\d+)').firstMatch(realUrl) ??
         RegExp(r'/share/video/(\d+)').firstMatch(realUrl) ??
         RegExp(r'aweme_id=(\d+)').firstMatch(realUrl);
 
     String? videoId = idMatch?.group(1);
 
-    // 如果 URL 没有直接拿到 ID，从页面内容提取
     if (videoId == null) {
       final body = resp.data.toString();
       final bodyMatch = RegExp(r'"awemeId":"?(\d+)"?').firstMatch(body) ??
@@ -92,18 +127,80 @@ class UrlResolver {
       videoId = bodyMatch?.group(1);
     }
 
-    if (videoId == null) throw Exception('无法提取抖音视频ID');
+    if (videoId == null) throw Exception('无法提取抖音视频ID（重定向方式）');
+    return await _downloadDouyinByVideoId(videoId);
+  }
 
-    // 3. 调用 API 获取视频信息
+  /// 策略 2：直接用 iesdouyin API
+  static Future<List<ResolvedMedia>> _resolveDouyinViaApi(
+      String shortCode) async {
+    final dio = _createDio();
+
+    // 直接用短链 code 调 API
+    final apiUrl = 'https://www.iesdouyin.com/web/api/v2/aweme/iteminfo/'
+        '?item_ids=$shortCode';
+    final resp = await dio.get(apiUrl);
+
+    final data = resp.data is Map ? resp.data as Map : <String, dynamic>{};
+    final itemList = data['item_list'] as List?;
+
+    if (itemList != null && itemList.isNotEmpty) {
+      final item = itemList[0] as Map;
+      final itemId = item['aweme_id']?.toString();
+      if (itemId != null) return await _downloadDouyinByVideoId(itemId);
+    }
+
+    throw Exception('API 未返回有效数据');
+  }
+
+  /// 策略 3：访问分享页提取视频信息
+  static Future<List<ResolvedMedia>> _resolveDouyinSharePage(
+      String shortCode) async {
+    final dio = _createDio();
+    final pageUrl = 'https://www.iesdouyin.com/share/$shortCode/';
+    final resp = await dio.get(pageUrl);
+    final html = resp.data.toString();
+
+    // 从 SSR 数据中提取视频 ID
+    final idMatch = RegExp(r'"awemeId":"?(\d+)"?').firstMatch(html) ??
+        RegExp(r'aweme_id[=:"]+(\d+)').firstMatch(html);
+
+    String? videoId = idMatch?.group(1);
+
+    if (videoId == null) {
+      // 尝试直接从页面提取视频 URL
+      final videoMatch = RegExp(r'"playAddr"[^[]*"urlList":\[?\s*"([^"]+)"')
+              .firstMatch(html) ??
+          RegExp(r'(https?://[^"]+douyin[^"]+\.mp4[^"]*)').firstMatch(html);
+
+      if (videoMatch != null) {
+        var videoUrl = videoMatch.group(1)!.replaceAll('\\u002F', '/');
+        videoUrl = videoUrl.replaceAll('playwm', 'play');
+
+        final tempDir = await getTemporaryDirectory();
+        final ts = DateTime.now().millisecondsSinceEpoch;
+        final filePath = '${tempDir.path}/douyin_share_$ts.mp4';
+        await _createDio().download(videoUrl, filePath);
+        return [ResolvedMedia(localPath: filePath, isVideo: true)];
+      }
+      throw Exception('分享页未提取到视频信息');
+    }
+
+    return await _downloadDouyinByVideoId(videoId);
+  }
+
+  /// 通用：根据 videoId 下载抖音媒体
+  static Future<List<ResolvedMedia>> _downloadDouyinByVideoId(
+      String videoId) async {
+    final dio = _createDio();
     final apiUrl =
         'https://www.iesdouyin.com/web/api/v2/aweme/iteminfo/?item_ids=$videoId';
-    final apiResp = await _dio.get(apiUrl);
+    final apiResp = await dio.get(apiUrl);
     final data = apiResp.data is Map ? apiResp.data as Map : <String, dynamic>{};
 
     final itemList = data['item_list'] as List?;
     if (itemList == null || itemList.isEmpty) {
-      // 尝试备用 API：解析页面 SSR JSON
-      return _resolveDouyinFromPage(resp.data.toString(), videoId);
+      throw Exception('抖音 API 返回空数据');
     }
 
     final item = itemList[0] as Map;
@@ -114,32 +211,27 @@ class UrlResolver {
     final tempDir = await getTemporaryDirectory();
     final ts = DateTime.now().millisecondsSinceEpoch;
 
-    // 4. 下载视频
+    // 下载视频
     if (video != null) {
       final playAddr = video['play_addr'] as Map?;
       final urlList = playAddr?['url_list'] as List?;
       if (urlList != null && urlList.isNotEmpty) {
-        var videoUrl = urlList[0].toString();
-        // playwm → play = 无水印版本
-        videoUrl = videoUrl.replaceAll('playwm', 'play');
-
+        var videoUrl = urlList[0].toString().replaceAll('playwm', 'play');
         final filePath = '${tempDir.path}/douyin_${videoId}_$ts.mp4';
-        await _dio.download(videoUrl, filePath);
+        await _createDio().download(videoUrl, filePath);
         results.add(ResolvedMedia(localPath: filePath, isVideo: true));
       }
     }
 
-    // 5. 下载图片（图文作品）
+    // 下载图片（图文作品）
     if (images != null) {
       for (int i = 0; i < images.length; i++) {
-        final img = images[i] as Map;
-        final urlList = img['url_list'] as List?;
+        final imgMap = images[i] as Map;
+        final urlList = imgMap['url_list'] as List?;
         if (urlList != null && urlList.isNotEmpty) {
-          var imgUrl = urlList[0].toString();
-          imgUrl = imgUrl.replaceFirst('http://', 'https://');
-          final filePath =
-              '${tempDir.path}/douyin_${videoId}_${i}_$ts.jpg';
-          await _dio.download(imgUrl, filePath);
+          var imgUrl = urlList[0].toString().replaceFirst('http://', 'https://');
+          final filePath = '${tempDir.path}/douyin_${videoId}_${i}_$ts.jpg';
+          await _createDio().download(imgUrl, filePath);
           results.add(ResolvedMedia(localPath: filePath, isVideo: false));
         }
       }
@@ -149,31 +241,11 @@ class UrlResolver {
     return results;
   }
 
-  /// 备用方案：从页面 HTML 中提取视频信息
-  static Future<List<ResolvedMedia>> _resolveDouyinFromPage(
-      String html, String videoId) async {
-    // 查找页面中的视频 URL
-    final videoMatch = RegExp(r'"playAddr"[^[]*"urlList":\[?\s*"([^"]+)"')
-            .firstMatch(html) ??
-        RegExp(r'"play_addr".*?"url_list":\[?"([^"]+)"').firstMatch(html) ??
-        RegExp(r'(https?://[^"]+douyin[^"]+\.mp4[^"]*)').firstMatch(html);
-
-    if (videoMatch == null) throw Exception('抖音页面中未找到视频地址');
-
-    var videoUrl = videoMatch.group(1)!.replaceAll('\\u002F', '/');
-    videoUrl = videoUrl.replaceAll('playwm', 'play');
-
-    final tempDir = await getTemporaryDirectory();
-    final ts = DateTime.now().millisecondsSinceEpoch;
-    final filePath = '${tempDir.path}/douyin_${videoId}_$ts.mp4';
-    await _dio.download(videoUrl, filePath);
-
-    return [ResolvedMedia(localPath: filePath, isVideo: true)];
-  }
-
   // ==================== B站 ====================
 
   static Future<List<ResolvedMedia>> _resolveBilibili(String url) async {
+    final dio = _createDio();
+
     // 提取 BV 号
     final bvMatch = RegExp(r'/(BV[\w]+)').firstMatch(url) ??
         RegExp(r'bvid=(BV[\w]+)').firstMatch(url);
@@ -182,7 +254,7 @@ class UrlResolver {
 
     // 调用 API 获取视频信息
     final apiUrl = 'https://api.bilibili.com/x/web-interface/view?bvid=$bvid';
-    final resp = await _dio.get(apiUrl);
+    final resp = await dio.get(apiUrl);
     final data = resp.data is Map ? resp.data['data'] as Map? : null;
     if (data == null) throw Exception('B站 API 未返回数据');
 
@@ -192,7 +264,7 @@ class UrlResolver {
     // 获取视频流
     final streamApiUrl =
         'https://api.bilibili.com/x/player/playurl?aid=$aid&cid=$cid&qn=80&fnval=1';
-    final streamResp = await _dio.get(streamApiUrl);
+    final streamResp = await dio.get(streamApiUrl);
     final streamData =
         streamResp.data is Map ? streamResp.data['data'] as Map? : null;
     if (streamData == null) throw Exception('无法获取B站视频流');
@@ -214,7 +286,7 @@ class UrlResolver {
     if (videoUrl == null) throw Exception('未能获取B站视频流地址');
 
     final filePath = '${tempDir.path}/bilibili_${bvid}_$ts.mp4';
-    await _dio.download(
+    await dio.download(
       videoUrl,
       filePath,
       options: Options(headers: {'Referer': 'https://www.bilibili.com/'}),
