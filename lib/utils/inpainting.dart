@@ -25,8 +25,8 @@ Future<img.Image> runInpainting(
   for (int y = 0; y < h; y++) {
     for (int x = 0; x < w; x++) {
       final p = mask.getPixel(x, y);
-      final alpha = img.getAlpha(p);
-      final lum = (img.getRed(p) + img.getGreen(p) + img.getBlue(p)) ~/ 3;
+      final alpha = p.a.toInt();
+      final lum = (p.r.toInt() + p.g.toInt() + p.b.toInt()) ~/ 3;
       if (lum > 128 && alpha > 0) {
         target[y * w + x] = true;
       }
@@ -57,9 +57,9 @@ Future<img.Image> runInpainting(
             if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
             if (target[ny * w + nx]) continue;
             final p = out.getPixel(nx, ny);
-            rSum += img.getRed(p);
-            gSum += img.getGreen(p);
-            bSum += img.getBlue(p);
+            rSum += p.r.toInt();
+            gSum += p.g.toInt();
+            bSum += p.b.toInt();
             cnt++;
           }
         }
@@ -93,9 +93,9 @@ Future<img.Image> runInpainting(
         final idx = y * w + x;
         if (!target[idx]) {
           final p = out.getPixel(x, y);
-          bufR[idx] = img.getRed(p);
-          bufG[idx] = img.getGreen(p);
-          bufB[idx] = img.getBlue(p);
+          bufR[idx] = p.r.toInt();
+          bufG[idx] = p.g.toInt();
+          bufB[idx] = p.b.toInt();
           continue;
         }
         // 只对 target 区域做平均，考虑周边距离加权
@@ -111,9 +111,9 @@ Future<img.Image> runInpainting(
             final d = sqrt(dx * dx + dy * dy);
             final wgt = exp(-d * d / 8.0);
             final p = out.getPixel(nx, ny);
-            rSum += (img.getRed(p) * wgt).round();
-            gSum += (img.getGreen(p) * wgt).round();
-            bSum += (img.getBlue(p) * wgt).round();
+            rSum += (p.r * wgt).round();
+            gSum += (p.g * wgt).round();
+            bSum += (p.b * wgt).round();
             wSum += wgt;
           }
         }
@@ -123,9 +123,9 @@ Future<img.Image> runInpainting(
           bufB[idx] = (bSum / wSum).round().clamp(0, 255);
         } else {
           final p = out.getPixel(x, y);
-          bufR[idx] = img.getRed(p);
-          bufG[idx] = img.getGreen(p);
-          bufB[idx] = img.getBlue(p);
+          bufR[idx] = p.r.toInt();
+          bufG[idx] = p.g.toInt();
+          bufB[idx] = p.b.toInt();
         }
       }
     }
@@ -171,11 +171,9 @@ Future<img.Image> runInpainting(
         final alpha = 1.0 - dMin / (feather + 1);
         final pO = out.getPixel(x, y);
         final pT = temp.getPixel(x, y);
-        int r = (img.getRed(pT) * (1 - alpha) + img.getRed(pO) * alpha).round();
-        int g =
-            (img.getGreen(pT) * (1 - alpha) + img.getGreen(pO) * alpha).round();
-        int b =
-            (img.getBlue(pT) * (1 - alpha) + img.getBlue(pO) * alpha).round();
+        int r = (pT.r * (1 - alpha) + pO.r * alpha).round();
+        int g = (pT.g * (1 - alpha) + pO.g * alpha).round();
+        int b = (pT.b * (1 - alpha) + pO.b * alpha).round();
         out.setPixelRgba(x, y, r.clamp(0, 255), g.clamp(0, 255), b.clamp(0, 255), 255);
       }
     }

@@ -375,7 +375,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                     blurRadius: 20,
                   ),
                 ],
-                backdropFilter: null,
               ),
               child: Row(
                 children: [

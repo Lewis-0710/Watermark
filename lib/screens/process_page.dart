@@ -1,4 +1,6 @@
 import 'dart:io';
+import 'dart:math';
+import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
@@ -732,6 +734,7 @@ class _MaskPainter {
     final offY = (containerSize.height - scaledImgH) / 2;
 
     final color = img.ColorRgba8(255, 255, 255, 255);
+    // color 用于 mask 填充，实际 setPixelRgba 已直接传参
     for (final stroke in strokes) {
       for (final p in stroke) {
         final local = p.localOffset;
@@ -759,7 +762,7 @@ class _MaskPainter {
       for (int i = 1; i < stroke.length; i++) {
         final a = stroke[i - 1].localOffset;
         final b = stroke[i].localOffset;
-        _drawLine(mask, a, b, scale, offX, offY, scaledImgW, scaledImgH, color);
+        _drawLine(mask, a, b, scale, offX, offY, scaledImgW, scaledImgH);
       }
     }
   }
@@ -773,7 +776,6 @@ class _MaskPainter {
     double offY,
     double scaledImgW,
     double scaledImgH,
-    int color,
   ) {
     final ax = a.dx - offX;
     final ay = a.dy - offY;
