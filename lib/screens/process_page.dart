@@ -11,6 +11,7 @@ import 'package:gal/gal.dart';
 import 'package:uuid/uuid.dart';
 
 import '../utils/inpainting.dart';
+import '../utils/url_resolver.dart';
 
 class ProcessPage extends StatefulWidget {
   final String inputUrl;
@@ -75,6 +76,8 @@ class _ProcessPageState extends State<ProcessPage> {
   bool _isDrawing = false;
 
   bool _isProcessing = false;
+  bool _isLoadingUrl = false;
+  String _loadingText = '';
   double _processProgress = 0;
   String _progressText = '';
 
@@ -101,12 +104,36 @@ class _ProcessPageState extends State<ProcessPage> {
       final item = await _buildMediaItem(type, p);
       if (item != null) _items.add(item);
     }
-    // 如果只有 URL，就用占位符提示用户（网络图片下载简化处理）
+
+    // 如果有 URL 且没有本地文件，尝试解析下载
     if (_items.isEmpty && widget.inputUrl.trim().isNotEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('检测到链接，请配合本地文件使用；已切换到演示模式')),
-      );
+      setState(() {
+        _isLoadingUrl = true;
+        _loadingText = '正在解析链接...';
+      });
+      try {
+        _loadingText = '正在下载媒体...';
+        if (mounted) setState(() {});
+        final results = await UrlResolver.resolve(widget.inputUrl);
+        for (final r in results) {
+          final type = r.isVideo ? MediaType.video : MediaType.image;
+          final item = await _buildMediaItem(type, r.localPath);
+          if (item != null) _items.add(item);
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('链接解析失败: $e'),
+              duration: const Duration(seconds: 5),
+            ),
+          );
+        }
+      } finally {
+        if (mounted) setState(() => _isLoadingUrl = false);
+      }
     }
+
     if (mounted) setState(() {});
   }
 
@@ -469,6 +496,24 @@ class _ProcessPageState extends State<ProcessPage> {
             Center(
               child: _buildMediaView(),
             ),
+            // 链接解析中遮罩
+            if (_isLoadingUrl)
+              Container(
+                color: Colors.black54,
+                child: Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const CircularProgressIndicator(color: Colors.white),
+                      const SizedBox(height: 16),
+                      Text(
+                        _loadingText,
+                        style: const TextStyle(color: Colors.white),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             // 处理中遮罩
             if (_isProcessing)
               Container(
