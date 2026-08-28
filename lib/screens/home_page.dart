@@ -131,11 +131,11 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           Positioned.fill(child: _buildStarBackground()),
           // 太阳系动态
           Positioned.fill(child: _buildSolarSystem()),
-          // 内容：输入框（界面正中）
+          // 内容：输入框（界面正中，左右边距18）
           SafeArea(
             child: Center(
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 24),
+                padding: const EdgeInsets.symmetric(horizontal: 18),
                 child: _buildInputRow(),
               ),
             ),
@@ -217,7 +217,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                 radius: 360,
                 color: Colors.amber[300]!,
                 planetSize: 34,
-                withRing: true,
               ),
             ],
           ),
@@ -273,7 +272,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     required Color color,
     required double planetSize,
     bool withMoon = false,
-    bool withRing = false,
   }) {
     return AnimatedBuilder(
       animation: controller,
@@ -287,18 +285,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             clipBehavior: Clip.none,
             alignment: Alignment.center,
             children: [
-              if (withRing)
-                Container(
-                  width: planetSize * 2.2,
-                  height: planetSize * 0.6,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(100),
-                    border: Border.all(
-                      color: color.withOpacity(0.6),
-                      width: 2,
-                    ),
-                  ),
-                ),
               Container(
                 width: planetSize,
                 height: planetSize,
@@ -343,15 +329,15 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     return LayoutBuilder(
       builder: (context, constraints) {
         final totalWidth =
-            constraints.maxWidth > 640 ? 560.0 : constraints.maxWidth * 0.92;
+            constraints.maxWidth > 640 ? 560.0 : constraints.maxWidth;
         return Center(
           child: Container(
             width: totalWidth,
-            height: 64,
+            height: 50,
             alignment: Alignment.center,
             decoration: BoxDecoration(
               color: Colors.white.withOpacity(0.08),
-              borderRadius: BorderRadius.circular(18),
+              borderRadius: BorderRadius.circular(16),
               border: Border.all(
                 color: Colors.white.withOpacity(0.2),
                 width: 1.5,
@@ -364,18 +350,18 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
               ],
             ),
             child: ClipRRect(
-              borderRadius: BorderRadius.circular(18),
+              borderRadius: BorderRadius.circular(16),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  // 左侧添加按钮（宽32高64，靠左对齐，背景透明，圆角与输入框一致）
+                  // 左侧添加按钮（宽32高50，靠左对齐，背景透明，圆角与输入框一致）
                   InkWell(
                     onTap: _pickLocalFiles,
                     borderRadius: const BorderRadius.horizontal(
-                        left: Radius.circular(18)),
+                        left: Radius.circular(16)),
                     child: Container(
                       width: 32,
-                      height: 64,
+                      height: 50,
                       alignment: Alignment.center,
                       color: Colors.transparent,
                       child: const Icon(
@@ -399,8 +385,9 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                           color: Colors.white.withOpacity(0.5),
                           fontSize: 14,
                         ),
+                        isDense: true,
                         contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 10, vertical: 20),
+                            horizontal: 8, vertical: 14),
                         border: InputBorder.none,
                         enabledBorder: InputBorder.none,
                         focusedBorder: InputBorder.none,
@@ -408,14 +395,14 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                       onSubmitted: (_) => _isStarting ? null : _onStart(),
                     ),
                   ),
-                  // 右侧开始箭头（宽32高64，靠右对齐，背景透明，圆角与输入框一致）
+                  // 右侧开始箭头（宽32高50，靠右对齐，背景透明，圆角与输入框一致）
                   InkWell(
                     onTap: _isStarting ? null : _onStart,
                     borderRadius: const BorderRadius.horizontal(
-                        right: Radius.circular(18)),
+                        right: Radius.circular(16)),
                     child: Container(
                       width: 32,
-                      height: 64,
+                      height: 50,
                       alignment: Alignment.center,
                       color: Colors.transparent,
                       child: _isStarting
