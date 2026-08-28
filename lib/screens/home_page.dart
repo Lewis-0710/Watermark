@@ -135,7 +135,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           SafeArea(
             child: Center(
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 18),
+                padding: const EdgeInsets.symmetric(horizontal: 12),
                 child: _buildInputRow(),
               ),
             ),
@@ -328,8 +328,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   Widget _buildInputRow() {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final totalWidth =
-            constraints.maxWidth > 640 ? 560.0 : constraints.maxWidth;
+        final totalWidth = constraints.maxWidth;
         return Center(
           child: Container(
             width: totalWidth,
