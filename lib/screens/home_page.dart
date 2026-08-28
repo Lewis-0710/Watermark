@@ -132,7 +132,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           Positioned.fill(child: _buildStarBackground()),
           // 太阳系动态
           Positioned.fill(child: _buildSolarSystem()),
-          // 内容：输入框（手机端左右间距18，桌面端左右间距64）
+          // 内容：输入框（手机端左右间距18，桌面端左右间距128）
           SafeArea(
             child: Center(
               child: Padding(
@@ -141,7 +141,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                           (defaultTargetPlatform == TargetPlatform.windows ||
                               defaultTargetPlatform == TargetPlatform.macOS ||
                               defaultTargetPlatform == TargetPlatform.linux))
-                      ? 64.0
+                      ? 128.0
                       : 18.0,
                 ),
                 child: _buildInputRow(),
