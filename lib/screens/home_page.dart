@@ -131,42 +131,12 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           Positioned.fill(child: _buildStarBackground()),
           // 太阳系动态
           Positioned.fill(child: _buildSolarSystem()),
-          // 内容：输入框 + 开始按钮
+          // 内容：输入框（界面正中）
           SafeArea(
             child: Center(
-              child: SingleChildScrollView(
+              child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 24),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Text(
-                      '水印杀手',
-                      style: TextStyle(
-                        fontSize: 36,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
-                        letterSpacing: 2,
-                        shadows: [
-                          Shadow(
-                            color: Colors.blueAccent,
-                            blurRadius: 20,
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    const Text(
-                      '支持抖音 / Bilibili / YouTube 链接，或选择本地图片和视频',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: Colors.white70,
-                      ),
-                    ),
-                    const SizedBox(height: 40),
-                    _buildInputRow(),
-                  ],
-                ),
+                child: _buildInputRow(),
               ),
             ),
           ),
@@ -430,6 +400,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                     controller: _urlController,
                     style: const TextStyle(
                         color: Colors.white, fontSize: 15),
+                    textInputAction: TextInputAction.go,
+                    keyboardType: TextInputType.url,
                     decoration: InputDecoration(
                       hintText: '粘贴抖音/B站/YouTube链接...',
                       hintStyle: TextStyle(
