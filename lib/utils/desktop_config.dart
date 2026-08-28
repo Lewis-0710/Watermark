@@ -10,7 +10,7 @@ Future<void> configureDesktopWindow() async {
       size: Size(1280, 800),
       minimumSize: Size(880, 600),
       center: true,
-      title: '水印清除大师',
+      title: '水印杀手',
       backgroundColor: Colors.transparent,
       skipTaskbar: false,
       titleBarStyle: TitleBarStyle.hidden,

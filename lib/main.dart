@@ -21,7 +21,7 @@ class WatermarkRemoverApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: '水印清除大师',
+      title: '水印杀手',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         primarySwatch: Colors.blue,

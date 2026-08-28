@@ -270,6 +270,8 @@ class _ProcessPageState extends State<ProcessPage> {
 
       final outBytes = img.encodeJpg(result, quality: 95);
       item.processedBytes = Uint8List.fromList(outBytes);
+      item.strokeList.clear();
+      _currentStroke.clear();
 
       if (mounted) {
         setState(() {
