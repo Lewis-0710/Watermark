@@ -97,21 +97,18 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       );
       return;
     }
-    // 抖音链接：自动识别视频或图集
-    final lower = url.toLowerCase();
-    if (lower.contains('douyin.com') || lower.contains('iesdouyin.com')) {
-      final urlMatch = RegExp(r'''https?://[^\s，。、,)"']+''').firstMatch(url);
-      if (urlMatch != null) {
-        final shareUrl = urlMatch.group(0)!;
-        setState(() => _isStarting = true);
-        await Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (_) => DouyinWebViewPage(shareUrl: shareUrl),
-          ),
-        );
-        if (mounted) setState(() => _isStarting = false);
-        return;
-      }
+    // 任意链接：通过 WebView 通用抓取器提取媒体
+    final urlMatch = RegExp(r'''https?://[^\s，。、,)"']+''').firstMatch(url);
+    if (urlMatch != null) {
+      final shareUrl = urlMatch.group(0)!;
+      setState(() => _isStarting = true);
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => DouyinWebViewPage(shareUrl: shareUrl),
+        ),
+      );
+      if (mounted) setState(() => _isStarting = false);
+      return;
     }
     Navigator.of(context).push(
       MaterialPageRoute(
