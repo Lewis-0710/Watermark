@@ -66,12 +66,12 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 
   Future<void> _pickLocalFiles() async {
     try {
-      final FilePickerResult? result = await FilePicker.platform.pickFiles(
+      final List<PlatformFile> files = await FilePicker.pickFiles(
         type: FileType.media,
         allowMultiple: true,
       );
-      if (result != null && result.files.isNotEmpty) {
-        for (var f in result.files) {
+      if (files.isNotEmpty) {
+        for (var f in files) {
           if (f.path != null) {
             _localFilePaths.add(f.path!);
           }
