@@ -125,3 +125,5 @@ app.*.symbols
 *.iml
 *.iws
 .vscode/
+.DS_Store
+*/.DS_Store
