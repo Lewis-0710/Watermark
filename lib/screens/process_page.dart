@@ -1,10 +1,10 @@
 import 'dart:io';
 import 'dart:math';
-import 'dart:typed_data';
 import 'dart:ui' as ui;
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart';
 import 'package:image/image.dart' as img;
+import 'package:path/path.dart' as p;
 import 'package:video_player/video_player.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:gal/gal.dart';
@@ -36,7 +36,7 @@ class MediaItem {
   final VideoPlayerController? videoController;
   img.Image? dartImage; // 用于处理
   Uint8List? processedBytes; // 处理后
-  final List<List<_DrawPoint>> strokeList = []; // 涂鸦笔画
+  final List<List<DrawPoint>> strokeList = []; // 涂鸦笔画
 
   MediaItem({
     required this.type,
@@ -50,10 +50,10 @@ class MediaItem {
   bool get isProcessed => processedBytes != null;
 }
 
-class _DrawPoint {
+class DrawPoint {
   final Offset localOffset; // 相对于绘制区域的坐标（0-1的比例坐标? 这里采用实际像素点再配合缩放）
   final double pressure;
-  _DrawPoint(this.localOffset, this.pressure);
+  DrawPoint(this.localOffset, this.pressure);
 }
 
 class _ProcessPageState extends State<ProcessPage> {
@@ -72,7 +72,7 @@ class _ProcessPageState extends State<ProcessPage> {
   double _lastPinchDist = 0;
 
   // 绘制
-  final List<_DrawPoint> _currentStroke = [];
+  final List<DrawPoint> _currentStroke = [];
   bool _isDrawing = false;
 
   bool _isProcessing = false;
@@ -167,6 +167,7 @@ class _ProcessPageState extends State<ProcessPage> {
         final vCtrl = VideoPlayerController.file(File(path));
         await vCtrl.initialize();
         vCtrl.setLooping(true);
+        vCtrl.play();
         return MediaItem(
           type: type,
           path: path,
@@ -188,14 +189,15 @@ class _ProcessPageState extends State<ProcessPage> {
   // 撤回
   void _undo() {
     final item = _currentItem();
-    if (item == null) return;
+    if (item == null) {
+      Navigator.of(context).pop();
+      return;
+    }
     if (item.strokeList.isNotEmpty) {
       item.strokeList.removeLast();
       setState(() {});
-    } else if (item.isProcessed) {
-      // 撤回处理结果
-      item.processedBytes = null;
-      setState(() {});
+    } else {
+      Navigator.of(context).pop();
     }
   }
 
@@ -209,11 +211,7 @@ class _ProcessPageState extends State<ProcessPage> {
       );
       return;
     }
-    if (item.type == MediaType.video) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('视频去除水印开发中，将截取当前帧处理作为演示')),
-      );
-    }
+    if (item.type == MediaType.video) return;
     setState(() {
       _isProcessing = true;
       _processProgress = 0;
@@ -296,45 +294,75 @@ class _ProcessPageState extends State<ProcessPage> {
   // 下载保存
   Future<void> _download() async {
     final item = _currentItem();
-    if (item == null || !item.isProcessed) {
+    if (item == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('当前媒体尚未处理完成')),
+        const SnackBar(content: Text('当前没有可下载的媒体')),
       );
       return;
     }
-    setState(() => _isProcessing = true);
+    final extension = _mediaExtension(item);
+    final name = _downloadName(extension);
+
     try {
-      final bytes = item.processedBytes!;
-      final ext = item.type == MediaType.video ? '.jpg' : '.jpg';
-      final name = 'wm_removed_${const Uuid().v4().substring(0, 6)}$ext';
-      // 使用 gal 保存到相册 / 图片目录
-      try {
-        await Gal.putImageBytes(bytes, name: name);
+      setState(() => _isProcessing = true);
+
+      if (_isDesktop) {
+        final directory = await getDownloadsDirectory();
+        if (directory == null) {
+          throw Exception('无法获取下载目录');
+        }
+        await directory.create(recursive: true);
+        final file = File('${directory.path}/$name');
+        final bytes =
+            item.processedBytes ?? await File(item.path).readAsBytes();
+        await file.writeAsBytes(bytes);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('已保存到下载: ${file.path}')),
+          );
+        }
+      } else {
+        if (item.type == MediaType.video) {
+          if (item.processedBytes != null) {
+            throw Exception('视频处理后文件不存在，无法保存到相册');
+          }
+          await Gal.putVideo(item.path);
+        } else if (item.processedBytes != null) {
+          await Gal.putImageBytes(item.processedBytes!, name: name);
+        } else {
+          await Gal.putImage(item.path);
+        }
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text('已保存到相册: $name')),
           );
         }
-      } catch (e) {
-        // gal 不可用则尝试保存到本地目录
-        final dir = await getApplicationDocumentsDirectory();
-        final file = File('${dir.path}/$name');
-        await file.writeAsBytes(bytes);
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('已保存到: ${file.path}')),
-          );
-        }
       }
-    } catch (e) {
+    } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('保存失败: $e')),
+          SnackBar(content: Text('保存失败: $error')),
         );
       }
     } finally {
       if (mounted) setState(() => _isProcessing = false);
     }
+  }
+
+  bool get _isDesktop {
+    return !kIsWeb &&
+        (Platform.isMacOS || Platform.isWindows || Platform.isLinux);
+  }
+
+  String _mediaExtension(MediaItem item) {
+    if (item.processedBytes != null) return '.jpg';
+    final extension = p.extension(item.path);
+    if (extension.isNotEmpty) return extension;
+    return item.type == MediaType.video ? '.mp4' : '.jpg';
+  }
+
+  String _downloadName(String extension) {
+    return 'watermark_${const Uuid().v4().substring(0, 8)}$extension';
   }
 
   MediaItem? _currentItem() {
@@ -367,15 +395,13 @@ class _ProcessPageState extends State<ProcessPage> {
       _lastFocalPoint = Offset((a.dx + b.dx) / 2, (a.dy + b.dy) / 2);
     }
     if (_pointers.length == 1) {
-      // 单指 => 涂鸦
       final item = _currentItem();
-      if (item != null) {
-        final local = event.localPosition;
-        final drawLocal = _toDrawingLocal(local);
+      if (item != null && item.type == MediaType.image) {
+        final drawLocal = _toDrawingLocal(event.localPosition);
         if (drawLocal != null) {
           _isDrawing = true;
           _currentStroke.clear();
-          _currentStroke.add(_DrawPoint(drawLocal, event.pressure));
+          _currentStroke.add(DrawPoint(drawLocal, event.pressure));
         }
       }
     }
@@ -406,10 +432,11 @@ class _ProcessPageState extends State<ProcessPage> {
       }
       setState(() {});
     } else if (_isDrawing) {
-      final local = event.localPosition;
-      final drawLocal = _toDrawingLocal(local);
+      final drawLocal = _currentItem()?.type == MediaType.image
+          ? _toDrawingLocal(event.localPosition)
+          : null;
       if (drawLocal != null) {
-        _currentStroke.add(_DrawPoint(drawLocal, event.pressure));
+        _currentStroke.add(DrawPoint(drawLocal, event.pressure));
         setState(() {});
       }
     }
@@ -439,8 +466,8 @@ class _ProcessPageState extends State<ProcessPage> {
     final box = _viewportBox();
     final boxSize = box?.size ?? context.size;
     if (boxSize == null) return null;
-    final topLeft =
-        Offset((boxSize.width - cs.width) / 2, (boxSize.height - cs.height) / 2);
+    final topLeft = Offset(
+        (boxSize.width - cs.width) / 2, (boxSize.height - cs.height) / 2);
     final rect = topLeft & cs;
     if (!rect.contains(globalLocal)) return null;
     return globalLocal - topLeft;
@@ -450,119 +477,138 @@ class _ProcessPageState extends State<ProcessPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.black,
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        foregroundColor: Colors.white,
-        elevation: 0,
-        title: Text('编辑 (${_currentIndex + 1}/${_items.isEmpty ? 1 : _items.length})'),
-        actions: [
-          if (_items.length > 1)
-            IconButton(
-              icon: const Icon(Icons.skip_previous),
-              onPressed: () {
-                if (_currentIndex > 0) {
-                  _currentIndex--;
-                  _scale = 1.0;
-                  _offset = Offset.zero;
-                  setState(() {});
-                }
-              },
-            ),
-          if (_items.length > 1)
-            IconButton(
-              icon: const Icon(Icons.skip_next),
-              onPressed: () {
-                if (_currentIndex < _items.length - 1) {
-                  _currentIndex++;
-                  _scale = 1.0;
-                  _offset = Offset.zero;
-                  setState(() {});
-                }
-              },
-            ),
-        ],
-      ),
-      body: Listener(
-        key: _viewportKey,
-        onPointerDown: _onPointerDown,
-        onPointerMove: _onPointerMove,
-        onPointerUp: _onPointerUp,
-        onPointerCancel: (e) => _onPointerUp(PointerUpEvent(
-          pointer: e.pointer,
-          position: e.position,
-        )),
-        child: Stack(
-          children: [
-            Center(
-              child: _buildMediaView(),
-            ),
-            // 链接解析中遮罩
-            if (_isLoadingUrl)
-              Container(
-                color: Colors.black54,
-                child: Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const CircularProgressIndicator(color: Colors.white),
-                      const SizedBox(height: 16),
-                      Text(
-                        _loadingText,
-                        style: const TextStyle(color: Colors.white),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            // 处理中遮罩
-            if (_isProcessing)
-              Container(
-                color: Colors.black54,
-                child: Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const CircularProgressIndicator(color: Colors.white),
-                      const SizedBox(height: 16),
-                      Text(
-                        '${(_processProgress * 100).toStringAsFixed(0)}% - $_progressText',
-                        style: const TextStyle(color: Colors.white),
-                      ),
-                      const SizedBox(height: 16),
-                      SizedBox(
-                        width: 220,
-                        child: LinearProgressIndicator(
-                          value: _processProgress,
-                          backgroundColor: Colors.white24,
-                          valueColor: const AlwaysStoppedAnimation<Color>(
-                              Colors.blueAccent),
+      body: SafeArea(
+        child: Listener(
+          key: _viewportKey,
+          onPointerDown: _onPointerDown,
+          onPointerMove: _onPointerMove,
+          onPointerUp: _onPointerUp,
+          onPointerCancel: (e) => _onPointerUp(PointerUpEvent(
+            pointer: e.pointer,
+            position: e.position,
+          )),
+          child: Stack(
+            children: [
+              Center(child: _buildMediaView()),
+              _buildGallery(),
+              // 链接解析中遮罩
+              if (_isLoadingUrl)
+                Container(
+                  color: Colors.black54,
+                  child: Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const CircularProgressIndicator(color: Colors.white),
+                        const SizedBox(height: 16),
+                        Text(
+                          _loadingText,
+                          style: const TextStyle(color: Colors.white),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
+              // 处理中遮罩
+              if (_isProcessing)
+                Container(
+                  color: Colors.black54,
+                  child: Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const CircularProgressIndicator(color: Colors.white),
+                        const SizedBox(height: 16),
+                        Text(
+                          '${(_processProgress * 100).toStringAsFixed(0)}% - $_progressText',
+                          style: const TextStyle(color: Colors.white),
+                        ),
+                        const SizedBox(height: 16),
+                        SizedBox(
+                          width: 220,
+                          child: LinearProgressIndicator(
+                            value: _processProgress,
+                            backgroundColor: Colors.white24,
+                            valueColor: const AlwaysStoppedAnimation<Color>(
+                                Colors.blueAccent),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              Positioned(
+                left: 20,
+                bottom: 32,
+                child: _buildUndoButton(),
               ),
-            // 底部按钮：左撤回、右下开始、底部中间下载
-            Positioned(
-              left: 20,
-              bottom: 30,
-              child: _buildUndoButton(),
-            ),
-            Positioned(
-              right: 20,
-              bottom: 30,
-              child: _buildStartProcessButton(),
-            ),
-            Positioned(
-              bottom: 30,
-              left: 0,
-              right: 0,
-              child: Center(child: _buildDownloadButton()),
-            ),
-          ],
+              Positioned(
+                right: 20,
+                bottom: 32,
+                child: _buildDownloadButton(),
+              ),
+              if (_currentItem()?.strokeList.isNotEmpty == true)
+                Positioned(
+                  bottom: 32,
+                  left: 0,
+                  right: 0,
+                  child: Center(child: _buildStartProcessButton()),
+                ),
+            ],
+          ),
         ),
       ),
     );
+  }
+
+  Widget _buildGallery() {
+    if (_items.length < 2) return const SizedBox.shrink();
+
+    return Positioned(
+      left: 0,
+      right: 0,
+      bottom: 0,
+      child: Container(
+        height: 88,
+        color: Colors.black54,
+        child: ListView.builder(
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.symmetric(horizontal: 70, vertical: 10),
+          itemCount: _items.length,
+          itemBuilder: (context, index) {
+            final item = _items[index];
+            final selected = index == _currentIndex;
+            return GestureDetector(
+              onTap: () => _selectItem(index),
+              child: Container(
+                width: 68,
+                height: 68,
+                margin: const EdgeInsets.only(right: 8),
+                decoration: BoxDecoration(
+                  border: Border.all(
+                    color: selected ? Colors.blueAccent : Colors.white24,
+                    width: selected ? 3 : 1,
+                  ),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: item.type == MediaType.video
+                    ? const Icon(Icons.videocam, color: Colors.white70)
+                    : Image.file(File(item.path), fit: BoxFit.cover),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  void _selectItem(int index) {
+    if (index == _currentIndex || index < 0 || index >= _items.length) return;
+    setState(() {
+      _currentIndex = index;
+      _scale = 1;
+      _offset = Offset.zero;
+    });
   }
 
   Widget _buildMediaView() {
@@ -680,33 +726,23 @@ class _ProcessPageState extends State<ProcessPage> {
   }
 
   Widget _buildStartProcessButton() {
-    return FloatingActionButton.extended(
+    return FloatingActionButton(
       heroTag: 'start',
       backgroundColor: Colors.green[700],
       foregroundColor: Colors.white,
       onPressed: _isProcessing ? null : _startProcess,
-      icon: const Icon(Icons.auto_fix_high),
-      label: const Text('开始去除'),
+      child: const Icon(Icons.auto_fix_high),
     );
   }
 
   Widget _buildDownloadButton() {
     final item = _currentItem();
-    final show = item != null && item.isProcessed;
-    return AnimatedOpacity(
-      opacity: show ? 1.0 : 0.0,
-      duration: const Duration(milliseconds: 250),
-      child: IgnorePointer(
-        ignoring: !show,
-        child: FloatingActionButton.extended(
-          heroTag: 'download',
-          backgroundColor: Colors.blue[700],
-          foregroundColor: Colors.white,
-          onPressed: _isProcessing ? null : _download,
-          icon: const Icon(Icons.download),
-          label: const Text('下载保存'),
-        ),
-      ),
+    return FloatingActionButton(
+      heroTag: 'download',
+      backgroundColor: Colors.blue[700],
+      foregroundColor: Colors.white,
+      onPressed: item == null || _isProcessing ? null : _download,
+      child: const Icon(Icons.download),
     );
   }
 }
@@ -718,8 +754,8 @@ class _Pointer {
 }
 
 class _DrawingPainter extends CustomPainter {
-  final List<List<_DrawPoint>> strokes;
-  final List<_DrawPoint> current;
+  final List<List<DrawPoint>> strokes;
+  final List<DrawPoint> current;
 
   _DrawingPainter({required this.strokes, required this.current});
 
@@ -739,7 +775,7 @@ class _DrawingPainter extends CustomPainter {
     }
   }
 
-  void _drawStroke(Canvas canvas, Paint paint, List<_DrawPoint> stroke) {
+  void _drawStroke(Canvas canvas, Paint paint, List<DrawPoint> stroke) {
     if (stroke.length == 1) {
       canvas.drawCircle(stroke[0].localOffset, 18, paint..strokeWidth = 36);
       return;
@@ -757,7 +793,7 @@ class _DrawingPainter extends CustomPainter {
 }
 
 class _MaskPainter {
-  final List<List<_DrawPoint>> strokes;
+  final List<List<DrawPoint>> strokes;
   final Size containerSize;
   final Size imageSize;
 
@@ -778,7 +814,6 @@ class _MaskPainter {
     final offX = (containerSize.width - scaledImgW) / 2;
     final offY = (containerSize.height - scaledImgH) / 2;
 
-    final color = img.ColorRgba8(255, 255, 255, 255);
     // color 用于 mask 填充，实际 setPixelRgba 已直接传参
     for (final stroke in strokes) {
       for (final p in stroke) {

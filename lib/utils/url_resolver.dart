@@ -1,5 +1,5 @@
-import 'dart:io';
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:dio/dio.dart';
 import 'package:path_provider/path_provider.dart';
 
@@ -17,10 +17,10 @@ class UrlResolver {
       connectTimeout: const Duration(seconds: 15),
       receiveTimeout: const Duration(seconds: 60),
       headers: {
-        'User-Agent':
-            'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) '
+        'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) '
             'AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept':
+            'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
         if (baseUrl != null) 'Referer': baseUrl,
       },
@@ -30,7 +30,7 @@ class UrlResolver {
   /// 从分享文本中提取 URL
   static String? extractUrl(String text) {
     final cleaned = text.replaceAll('`', '').trim();
-    final regex = RegExp(r'https?://[^\s，。、,)"\'\']+');
+    final regex = RegExp(r'''https?://[^\s，。、,)"']+''');
     final match = regex.firstMatch(cleaned);
     return match?.group(0);
   }
@@ -69,16 +69,11 @@ class UrlResolver {
   // ==================== 抖音 ====================
 
   static Future<List<ResolvedMedia>> _resolveDouyin(String shareUrl) async {
-    // Step 1: 跟随短链重定向获取真实 URL 和视频 ID
     final videoId = await _resolveDouyinVideoId(shareUrl);
-    if (videoId == null) {
-      throw Exception('无法解析抖音视频ID');
+    if (videoId != null) {
+      return _fetchAndDownloadDouyin(videoId);
     }
-
-    debugPrint('抖音视频ID: $videoId');
-
-    // Step 2: 通过视频ID获取媒体信息并下载
-    return await _fetchAndDownloadDouyin(videoId);
+    throw Exception('抖音链接解析失败，请使用自动 WebView 解析流程');
   }
 
   /// 跟随重定向解析视频ID
@@ -111,7 +106,8 @@ class UrlResolver {
 
     // 方案B：如果是 v.douyin.com 短链，直接请求短链页面并提取
     try {
-      final match = RegExp(r'douyin\.com/([A-Za-z0-9_\-]+)').firstMatch(shareUrl);
+      final match =
+          RegExp(r'douyin\.com/([A-Za-z0-9_\-]+)').firstMatch(shareUrl);
       if (match != null) {
         final code = match.group(1)!;
         final shareUrl2 = 'https://www.douyin.com/share/$code';
@@ -180,10 +176,7 @@ class UrlResolver {
     final resp = await dio.get(pageUrl);
     final html = resp.data.toString();
 
-    // 从页面中提取 __REACT_APP_DATA__ 或 SSR 数据
     final results = <ResolvedMedia>[];
-    final tempDir = await getTemporaryDirectory();
-    final ts = DateTime.now().millisecondsSinceEpoch;
 
     // 方法1：尝试从 SSR JSON 中解析
     final videoInfo = _parseVideoInfoFromHtml(html, videoId);
@@ -199,8 +192,7 @@ class UrlResolver {
     }
 
     if (results.isEmpty) {
-      throw Exception(
-          '未能从页面中提取视频地址。可能是该视频已设为私密或已被删除。');
+      throw Exception('未能从页面中提取视频地址。可能是该视频已设为私密或已被删除。');
     }
 
     return results;
@@ -209,8 +201,6 @@ class UrlResolver {
   /// 从 HTML 解析视频信息
   static List<ResolvedMedia>? _parseVideoInfoFromHtml(
       String html, String videoId) {
-    final results = <ResolvedMedia>[];
-
     // 查找 __REACT_APP_DATA__ JSON
     final reactMatch =
         RegExp(r'__REACT_APP_DATA__\s*=\s*(\{[\s\S]*?\});').firstMatch(html);
@@ -233,8 +223,7 @@ class UrlResolver {
     }
   }
 
-  static List<ResolvedMedia> _parseNextData(
-      String jsonStr, String videoId) {
+  static List<ResolvedMedia> _parseNextData(String jsonStr, String videoId) {
     final results = <ResolvedMedia>[];
     try {
       final data = jsonDecode(jsonStr) as Map<String, dynamic>;
@@ -242,8 +231,8 @@ class UrlResolver {
       final props = data['props'] as Map?;
       final pageProps = props?['pageProps'] as Map?;
       if (pageProps != null) {
-        final videoData = pageProps['videoInfo'] as Map? ??
-            pageProps['RENDER_DATA'] as Map?;
+        final videoData =
+            pageProps['videoInfo'] as Map? ?? pageProps['RENDER_DATA'] as Map?;
         if (videoData != null) {
           _findAndExtractMedia(videoData, videoId, results);
         }
@@ -355,7 +344,7 @@ class UrlResolver {
 
     // 搜索 mp4 URL
     final urlRegex =
-        RegExp(r'(https?://[^"\'\s<>\\]+?\.(?:mp4|m3u8)[^"\'\s<>\\]*)');
+        RegExp(r'''(https?://[^"'\s<>\\]+?\.(?:mp4|m3u8)[^"'\s<>\\]*)''');
     final matches = urlRegex.allMatches(html);
 
     for (final m in matches) {

@@ -2,6 +2,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'process_page.dart';
+import 'douyin_webview_page.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -19,6 +20,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   late final AnimationController _orbit4Controller;
   late final AnimationController _orbit5Controller;
   final List<String> _localFilePaths = [];
+  bool _isStarting = false;
 
   @override
   void initState() {
@@ -85,13 +87,30 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     }
   }
 
-  void _onStart() {
+  Future<void> _onStart() async {
+    if (_isStarting) return;
     final url = _urlController.text.trim();
     if (url.isEmpty && _localFilePaths.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('请输入链接或选择本地图片/视频')),
       );
       return;
+    }
+    // 抖音链接：自动识别视频或图集
+    final lower = url.toLowerCase();
+    if (lower.contains('douyin.com') || lower.contains('iesdouyin.com')) {
+      final urlMatch = RegExp(r'''https?://[^\s，。、,)"']+''').firstMatch(url);
+      if (urlMatch != null) {
+        final shareUrl = urlMatch.group(0)!;
+        setState(() => _isStarting = true);
+        await Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => DouyinWebViewPage(shareUrl: shareUrl),
+          ),
+        );
+        if (mounted) setState(() => _isStarting = false);
+        return;
+      }
     }
     Navigator.of(context).push(
       MaterialPageRoute(
@@ -432,7 +451,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             SizedBox(
               height: 64,
               child: ElevatedButton(
-                onPressed: _onStart,
+                onPressed: _isStarting ? null : _onStart,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFF6C5CE7),
                   foregroundColor: Colors.white,
@@ -444,14 +463,24 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                   elevation: 8,
                   shadowColor: Colors.purpleAccent.withOpacity(0.5),
                 ),
-                child: const Row(
+                child: Row(
                   children: [
-                    Icon(Icons.play_arrow, size: 22),
+                    if (_isStarting)
+                      const SizedBox(
+                        width: 22,
+                        height: 22,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    else
+                      const Icon(Icons.play_arrow, size: 22),
                     SizedBox(width: 6),
                     Text(
                       '开始',
-                      style: TextStyle(
-                          fontSize: 16, fontWeight: FontWeight.bold),
+                      style:
+                          TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                     ),
                   ],
                 ),
