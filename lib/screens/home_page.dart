@@ -363,85 +363,65 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                 ),
               ],
             ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                // 左侧添加按钮（44x44，与右侧开始按钮大小一致且上下居中）
-                Padding(
-                  padding: const EdgeInsets.only(left: 10),
-                  child: InkWell(
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(18),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  // 左侧添加按钮（宽32高64，靠左对齐，背景透明，圆角与输入框一致）
+                  InkWell(
                     onTap: _pickLocalFiles,
-                    borderRadius: BorderRadius.circular(14),
+                    borderRadius: const BorderRadius.horizontal(
+                        left: Radius.circular(18)),
                     child: Container(
-                      width: 44,
-                      height: 44,
+                      width: 32,
+                      height: 64,
                       alignment: Alignment.center,
-                      decoration: BoxDecoration(
-                        color: Colors.blueAccent.withOpacity(0.85),
-                        borderRadius: BorderRadius.circular(12),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.blueAccent.withOpacity(0.4),
-                            blurRadius: 10,
-                          ),
-                        ],
-                      ),
+                      color: Colors.transparent,
                       child: const Icon(
                         Icons.add,
                         color: Colors.white,
-                        size: 24,
+                        size: 20,
                       ),
                     ),
                   ),
-                ),
-                // 中间输入框
-                Expanded(
-                  child: TextField(
-                    controller: _urlController,
-                    style: const TextStyle(
-                        color: Colors.white, fontSize: 15),
-                    textInputAction: TextInputAction.go,
-                    keyboardType: TextInputType.url,
-                    decoration: InputDecoration(
-                      hintText: '粘贴抖音/B站/YouTube链接...',
-                      hintStyle: TextStyle(
-                        color: Colors.white.withOpacity(0.5),
-                        fontSize: 14,
+                  // 中间输入框
+                  Expanded(
+                    child: TextField(
+                      controller: _urlController,
+                      style: const TextStyle(
+                          color: Colors.white, fontSize: 15),
+                      textInputAction: TextInputAction.go,
+                      keyboardType: TextInputType.url,
+                      decoration: InputDecoration(
+                        hintText: '粘贴抖音/B站/YouTube链接...',
+                        hintStyle: TextStyle(
+                          color: Colors.white.withOpacity(0.5),
+                          fontSize: 14,
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 20),
+                        border: InputBorder.none,
+                        enabledBorder: InputBorder.none,
+                        focusedBorder: InputBorder.none,
                       ),
-                      contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 14, vertical: 20),
-                      border: InputBorder.none,
-                      enabledBorder: InputBorder.none,
-                      focusedBorder: InputBorder.none,
+                      onSubmitted: (_) => _isStarting ? null : _onStart(),
                     ),
-                    onSubmitted: (_) => _isStarting ? null : _onStart(),
                   ),
-                ),
-                // 右侧开始箭头（44x44，与左侧添加按钮大小一致且上下居中）
-                Padding(
-                  padding: const EdgeInsets.only(right: 10),
-                  child: InkWell(
+                  // 右侧开始箭头（宽32高64，靠右对齐，背景透明，圆角与输入框一致）
+                  InkWell(
                     onTap: _isStarting ? null : _onStart,
-                    borderRadius: BorderRadius.circular(14),
+                    borderRadius: const BorderRadius.horizontal(
+                        right: Radius.circular(18)),
                     child: Container(
-                      width: 44,
-                      height: 44,
+                      width: 32,
+                      height: 64,
                       alignment: Alignment.center,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF6C5CE7),
-                        borderRadius: BorderRadius.circular(12),
-                        boxShadow: [
-                          BoxShadow(
-                            color: const Color(0xFF6C5CE7)
-                                .withOpacity(0.5),
-                            blurRadius: 10,
-                          ),
-                        ],
-                      ),
+                      color: Colors.transparent,
                       child: _isStarting
                           ? const SizedBox(
-                              width: 20,
-                              height: 20,
+                              width: 18,
+                              height: 18,
                               child: CircularProgressIndicator(
                                 strokeWidth: 2,
                                 color: Colors.white,
@@ -450,12 +430,12 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                           : const Icon(
                               Icons.arrow_forward_rounded,
                               color: Colors.white,
-                              size: 24,
+                              size: 20,
                             ),
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         );
