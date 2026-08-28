@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
@@ -131,11 +132,18 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           Positioned.fill(child: _buildStarBackground()),
           // 太阳系动态
           Positioned.fill(child: _buildSolarSystem()),
-          // 内容：输入框（界面正中，左右边距18）
+          // 内容：输入框（手机端左右间距18，桌面端左右间距64）
           SafeArea(
             child: Center(
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12),
+                padding: EdgeInsets.symmetric(
+                  horizontal: (!kIsWeb &&
+                          (defaultTargetPlatform == TargetPlatform.windows ||
+                              defaultTargetPlatform == TargetPlatform.macOS ||
+                              defaultTargetPlatform == TargetPlatform.linux))
+                      ? 64.0
+                      : 18.0,
+                ),
                 child: _buildInputRow(),
               ),
             ),
