@@ -384,7 +384,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                       textInputAction: TextInputAction.go,
                       keyboardType: TextInputType.url,
                       decoration: InputDecoration(
-                        hintText: '粘贴抖音/B站/YouTube链接...',
+                        hintText: '粘贴抖音/TikTok/B站/YouTube链接...',
                         hintStyle: TextStyle(
                           color: Colors.white.withOpacity(0.5),
                           fontSize: 14,

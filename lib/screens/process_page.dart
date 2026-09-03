@@ -112,9 +112,16 @@ class _ProcessPageState extends State<ProcessPage> {
         _loadingText = '正在解析链接...';
       });
       try {
-        _loadingText = '正在下载媒体...';
-        if (mounted) setState(() {});
-        final results = await UrlResolver.resolve(widget.inputUrl);
+        final results = await UrlResolver.resolve(
+          widget.inputUrl,
+          onProgress: (progress, status) {
+            if (mounted) {
+              setState(() {
+                _loadingText = status;
+              });
+            }
+          },
+        );
         for (final r in results) {
           final type = r.isVideo ? MediaType.video : MediaType.image;
           final item = await _buildMediaItem(type, r.localPath);

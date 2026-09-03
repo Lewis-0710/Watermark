@@ -1,6 +1,8 @@
+import 'dart:io';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:dio/dio.dart';
+import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 import 'package:path_provider/path_provider.dart';
 
 /// 解析后的媒体信息
@@ -35,20 +37,25 @@ class UrlResolver {
     return match?.group(0);
   }
 
-  static Future<List<ResolvedMedia>> resolve(String inputUrl) async {
+  static Future<List<ResolvedMedia>> resolve(
+    String inputUrl, {
+    void Function(double progress, String status)? onProgress,
+  }) async {
     final url = extractUrl(inputUrl) ?? inputUrl.trim();
     if (url.isEmpty) throw Exception('未检测到有效链接');
 
     final platform = _detectPlatform(url);
     switch (platform) {
       case 'douyin':
-        return _resolveDouyin(url);
+        return _resolveDouyin(url, onProgress: onProgress);
+      case 'tiktok':
+        return _resolveTiktok(url, onProgress: onProgress);
       case 'bilibili':
-        return _resolveBilibili(url);
+        return _resolveBilibili(url, onProgress: onProgress);
       case 'youtube':
-        throw Exception('YouTube 暂不支持直接解析');
+        return _resolveYoutube(url, onProgress: onProgress);
       default:
-        throw Exception('不支持的平台，请粘贴抖音/B站链接');
+        throw Exception('不支持的平台，请粘贴抖音/TikTok/B站/YouTube链接');
     }
   }
 
@@ -56,6 +63,9 @@ class UrlResolver {
     final lower = url.toLowerCase();
     if (lower.contains('douyin.com') || lower.contains('iesdouyin.com')) {
       return 'douyin';
+    }
+    if (lower.contains('tiktok.com')) {
+      return 'tiktok';
     }
     if (lower.contains('bilibili.com') || lower.contains('b23.tv')) {
       return 'bilibili';
@@ -68,10 +78,13 @@ class UrlResolver {
 
   // ==================== 抖音 ====================
 
-  static Future<List<ResolvedMedia>> _resolveDouyin(String shareUrl) async {
+  static Future<List<ResolvedMedia>> _resolveDouyin(
+    String shareUrl, {
+    void Function(double progress, String status)? onProgress,
+  }) async {
     final videoId = await _resolveDouyinVideoId(shareUrl);
     if (videoId != null) {
-      return _fetchAndDownloadDouyin(videoId);
+      return _fetchAndDownloadDouyin(videoId, onProgress: onProgress);
     }
     throw Exception('抖音链接解析失败，请使用自动 WebView 解析流程');
   }
@@ -168,7 +181,9 @@ class UrlResolver {
 
   /// 通过视频ID获取信息并下载
   static Future<List<ResolvedMedia>> _fetchAndDownloadDouyin(
-      String videoId) async {
+    String videoId, {
+    void Function(double progress, String status)? onProgress,
+  }) async {
     final dio = _createDio(baseUrl: 'https://www.douyin.com/');
 
     // 访问视频页面，从 SSR 数据中提取播放地址
@@ -370,7 +385,11 @@ class UrlResolver {
 
   // ==================== B站 ====================
 
-  static Future<List<ResolvedMedia>> _resolveBilibili(String url) async {
+  static Future<List<ResolvedMedia>> _resolveBilibili(
+    String url, {
+    void Function(double progress, String status)? onProgress,
+  }) async {
+    onProgress?.call(0.1, '正在解析 B站 视频信息...');
     final dio = _createDio(baseUrl: 'https://www.bilibili.com/');
 
     final bvMatch = RegExp(r'/(BV[\w]+)').firstMatch(url) ??
@@ -410,13 +429,310 @@ class UrlResolver {
     if (videoUrl == null) throw Exception('未能获取B站视频流地址');
 
     final filePath = '${tempDir.path}/bilibili_${bvid}_$ts.mp4';
+    onProgress?.call(0.3, '正在下载 B站 视频...');
     await dio.download(
       videoUrl,
       filePath,
+      onReceiveProgress: (received, total) {
+        if (total > 0 && onProgress != null) {
+          final progress = 0.3 + (received / total) * 0.7;
+          final mb = (received / 1024 / 1024).toStringAsFixed(1);
+          final totalMb = (total / 1024 / 1024).toStringAsFixed(1);
+          onProgress(progress, '正在下载 B站 视频 $mb MB / $totalMb MB');
+        }
+      },
       options: Options(headers: {'Referer': 'https://www.bilibili.com/'}),
     );
     results.add(ResolvedMedia(localPath: filePath, isVideo: true));
 
     return results;
+  }
+
+  // ==================== TikTok ====================
+
+  static Future<List<ResolvedMedia>> _resolveTiktok(
+    String shareUrl, {
+    void Function(double progress, String status)? onProgress,
+  }) async {
+    onProgress?.call(0.1, '正在解析 TikTok 链接...');
+    final client = HttpClient();
+    client.badCertificateCallback = (cert, host, port) => true;
+
+    try {
+      final req = await client.getUrl(Uri.parse(shareUrl));
+      req.headers.set(
+        HttpHeaders.userAgentHeader,
+        'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) '
+        'AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1',
+      );
+      req.headers.set(
+        HttpHeaders.acceptHeader,
+        'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      );
+      req.headers.set(
+        HttpHeaders.acceptLanguageHeader,
+        'en-US,en;q=0.9,zh-CN,zh;q=0.8',
+      );
+      req.followRedirects = true;
+      req.maxRedirects = 10;
+
+      final resp = await req.close();
+      final cookies = <Cookie>[];
+      resp.cookies.forEach(cookies.add);
+
+      final html = await resp.transform(utf8.decoder).join();
+      final finalUrl = resp.redirects.isNotEmpty
+          ? resp.redirects.last.location.toString()
+          : shareUrl;
+
+      final videoIdMatch = RegExp(r'/video/(\d+)').firstMatch(finalUrl) ??
+          RegExp(r'/video/(\d+)').firstMatch(shareUrl);
+      final videoId = videoIdMatch?.group(1) ??
+          DateTime.now().millisecondsSinceEpoch.toString();
+
+      String? videoUrl;
+      final imageUrls = <String>[];
+
+      void extractMedia(dynamic obj) {
+        if (videoUrl != null || imageUrls.isNotEmpty) return;
+        if (obj is Map) {
+          final imgPost = obj['imagePostInfo'];
+          if (imgPost is Map && imgPost['images'] is List) {
+            for (final item in imgPost['images']) {
+              if (item is Map) {
+                final disp = item['displayImage'] ?? item['display_image'];
+                if (disp is Map &&
+                    disp['urlList'] is List &&
+                    (disp['urlList'] as List).isNotEmpty) {
+                  imageUrls.add(disp['urlList'][0].toString());
+                } else if (item['urlList'] is List &&
+                    (item['urlList'] as List).isNotEmpty) {
+                  imageUrls.add(item['urlList'][0].toString());
+                }
+              }
+            }
+            if (imageUrls.isNotEmpty) return;
+          }
+
+          final video = obj['video'];
+          if (video is Map) {
+            final pAddr = video['playAddr'] ?? video['play_addr'];
+            final dlAddr = video['downloadAddr'] ?? video['download_addr'];
+            if (pAddr is String && pAddr.isNotEmpty) {
+              videoUrl = pAddr;
+              return;
+            } else if (pAddr is Map &&
+                pAddr['url_list'] is List &&
+                (pAddr['url_list'] as List).isNotEmpty) {
+              videoUrl = (pAddr['url_list'] as List).first.toString();
+              return;
+            } else if (dlAddr is String && dlAddr.isNotEmpty) {
+              videoUrl = dlAddr;
+              return;
+            }
+          }
+
+          for (final v in obj.values) {
+            extractMedia(v);
+          }
+        } else if (obj is List) {
+          for (final v in obj) {
+            extractMedia(v);
+          }
+        }
+      }
+
+      dynamic parseScript(String id) {
+        final match = RegExp('<script id="$id"[^>]*>(.*?)</script>',
+                dotAll: true)
+            .firstMatch(html);
+        if (match != null) {
+          try {
+            return jsonDecode(match.group(1)!);
+          } catch (_) {}
+        }
+        return null;
+      }
+
+      final universal = parseScript('__UNIVERSAL_DATA_FOR_REHYDRATION__');
+      if (universal != null) extractMedia(universal);
+
+      if (videoUrl == null && imageUrls.isEmpty) {
+        final apiData = parseScript('api-data');
+        if (apiData != null) extractMedia(apiData);
+      }
+
+      if (videoUrl == null && imageUrls.isEmpty) {
+        final sigi = parseScript('SIGI_STATE');
+        if (sigi != null) extractMedia(sigi);
+      }
+
+      // 正则兜底
+      if (videoUrl == null && imageUrls.isEmpty) {
+        final m = RegExp(r'"playAddr"\s*:\s*"([^"]+)"').firstMatch(html) ??
+            RegExp(r'"downloadAddr"\s*:\s*"([^"]+)"').firstMatch(html);
+        if (m != null) {
+          videoUrl =
+              m.group(1)!.replaceAll(r'\u002F', '/').replaceAll(r'\/', '/');
+        }
+      }
+
+      final tempDir = await getTemporaryDirectory();
+      final ts = DateTime.now().millisecondsSinceEpoch;
+      final results = <ResolvedMedia>[];
+
+      if (videoUrl != null) {
+        onProgress?.call(0.2, '正在连接 TikTok 视频流...');
+        final cleanUrl = Uri.decodeFull(
+            videoUrl!.replaceAll(r'\u002F', '/').replaceAll(r'\/', '/'));
+        final filePath = '${tempDir.path}/tiktok_${videoId}_$ts.mp4';
+
+        final dlReq = await client.getUrl(Uri.parse(cleanUrl));
+        dlReq.headers.set(
+          HttpHeaders.userAgentHeader,
+          'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) '
+          'AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1',
+        );
+        dlReq.headers.set('Referer', 'https://www.tiktok.com/');
+        for (final c in cookies) {
+          dlReq.cookies.add(c);
+        }
+
+        final dlResp = await dlReq.close();
+        if (dlResp.statusCode >= 400) {
+          throw Exception('TikTok 视频流下载失败 (HTTP ${dlResp.statusCode})');
+        }
+
+        final totalBytes = dlResp.contentLength;
+        int receivedBytes = 0;
+        final file = File(filePath);
+        final sink = file.openWrite();
+
+        await for (final chunk in dlResp) {
+          sink.add(chunk);
+          receivedBytes += chunk.length;
+          if (totalBytes > 0 && onProgress != null) {
+            final progress = 0.2 + (receivedBytes / totalBytes) * 0.8;
+            final mb = (receivedBytes / 1024 / 1024).toStringAsFixed(1);
+            final totalMb = (totalBytes / 1024 / 1024).toStringAsFixed(1);
+            onProgress(progress, '正在下载 TikTok 视频 $mb MB / $totalMb MB');
+          }
+        }
+        await sink.flush();
+        await sink.close();
+
+        results.add(ResolvedMedia(localPath: filePath, isVideo: true));
+        return results;
+      }
+
+      if (imageUrls.isNotEmpty) {
+        for (var i = 0; i < imageUrls.length; i++) {
+          onProgress?.call(
+            (i + 1) / imageUrls.length,
+            '正在下载 TikTok 图集 (${i + 1}/${imageUrls.length})...',
+          );
+          final imgUrl = imageUrls[i];
+          final extMatch =
+              RegExp(r'\.(jpe?g|png|webp|heic)', caseSensitive: false)
+                  .firstMatch(imgUrl);
+          final ext = extMatch?.group(1)?.toLowerCase() ?? 'jpg';
+          final filePath = '${tempDir.path}/tiktok_${videoId}_${i}_$ts.$ext';
+
+          final dlReq = await client.getUrl(Uri.parse(imgUrl));
+          dlReq.headers.set(
+            HttpHeaders.userAgentHeader,
+            'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) '
+            'AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1',
+          );
+          dlReq.headers.set('Referer', 'https://www.tiktok.com/');
+          for (final c in cookies) {
+            dlReq.cookies.add(c);
+          }
+          final dlResp = await dlReq.close();
+          if (dlResp.statusCode < 400) {
+            final file = File(filePath);
+            final sink = file.openWrite();
+            await dlResp.pipe(sink);
+            results.add(ResolvedMedia(localPath: filePath, isVideo: false));
+          }
+        }
+        if (results.isNotEmpty) return results;
+      }
+
+      throw Exception('未能从 TikTok 页面提取到可播放的媒体');
+    } finally {
+      client.close();
+    }
+  }
+
+  // ==================== YouTube ====================
+
+  static Future<List<ResolvedMedia>> _resolveYoutube(
+    String url, {
+    void Function(double progress, String status)? onProgress,
+  }) async {
+    onProgress?.call(0.1, '正在解析 YouTube 视频信息...');
+    final yt = YoutubeExplode();
+    try {
+      final video = await yt.videos.get(url);
+      onProgress?.call(0.2, '正在检索最佳画质视频流...');
+      final manifest = await yt.videos.streamsClient.getManifest(video.id);
+
+      StreamInfo? selectedStream;
+      final mp4Muxed = manifest.muxed
+          .where((s) => s.container.name.toLowerCase() == 'mp4')
+          .toList();
+      if (mp4Muxed.isNotEmpty) {
+        selectedStream = mp4Muxed.withHighestBitrate();
+      } else if (manifest.muxed.isNotEmpty) {
+        selectedStream = manifest.muxed.withHighestBitrate();
+      } else if (manifest.video.isNotEmpty) {
+        final mp4Video = manifest.video
+            .where((s) => s.container.name.toLowerCase() == 'mp4')
+            .toList();
+        if (mp4Video.isNotEmpty) {
+          selectedStream = mp4Video.withHighestBitrate();
+        } else {
+          selectedStream = manifest.video.withHighestBitrate();
+        }
+      }
+
+      if (selectedStream == null) {
+        throw Exception('未找到可下载的 YouTube 视频流');
+      }
+
+      final tempDir = await getTemporaryDirectory();
+      final ts = DateTime.now().millisecondsSinceEpoch;
+      final ext = selectedStream.container.name.toLowerCase();
+      final filePath = '${tempDir.path}/youtube_${video.id}_$ts.$ext';
+
+      final totalBytes = selectedStream.size.totalBytes;
+      int receivedBytes = 0;
+
+      onProgress?.call(0.3, '正在下载 YouTube 视频...');
+      final stream = yt.videos.streamsClient.get(selectedStream);
+      final file = File(filePath);
+      final sink = file.openWrite();
+
+      await for (final chunk in stream) {
+        sink.add(chunk);
+        receivedBytes += chunk.length;
+        if (totalBytes > 0 && onProgress != null) {
+          final progress = 0.3 + (receivedBytes / totalBytes) * 0.7;
+          final mb = (receivedBytes / 1024 / 1024).toStringAsFixed(1);
+          final totalMb = (totalBytes / 1024 / 1024).toStringAsFixed(1);
+          onProgress(progress, '正在下载 YouTube 视频 $mb MB / $totalMb MB');
+        }
+      }
+      await sink.flush();
+      await sink.close();
+
+      return [ResolvedMedia(localPath: filePath, isVideo: true)];
+    } catch (e) {
+      debugPrint('YouTube 下载失败: $e');
+      throw Exception('YouTube 视频下载失败: $e');
+    } finally {
+      yt.close();
+    }
   }
 }

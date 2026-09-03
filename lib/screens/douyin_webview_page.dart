@@ -1,9 +1,11 @@
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 import '../utils/douyin_webview_extractor.dart';
+import '../utils/url_resolver.dart';
 import 'process_page.dart';
 
 class DouyinWebViewPage extends StatefulWidget {
@@ -64,11 +66,61 @@ class _DouyinWebViewPageState extends State<DouyinWebViewPage> {
   }
 
   Future<void> _start() async {
+    setState(() {
+      _extracting = true;
+      _status = '正在准备解析...';
+      _progress = 0;
+    });
+
+    // 优先尝试直接解析（支持 TikTok、YouTube、B站及免验证抖音链接）
     try {
+      final results = await UrlResolver.resolve(
+        widget.shareUrl,
+        onProgress: (progress, status) {
+          if (mounted) {
+            setState(() {
+              _progress = progress;
+              _status = status;
+              _downloading = progress > 0.2;
+            });
+          }
+        },
+      );
+      if (results.isNotEmpty) {
+        if (mounted) setState(() => _status = '下载完成');
+        _openProcessPage(results.map((r) => r.localPath).toList());
+        return;
+      }
+    } catch (e) {
+      debugPrint('快速直接解析未成功，尝试 WebView 方式: $e');
+    }
+
+    // 桌面端无内置 mobile webview，如果直接解析失败则提示用户
+    if (!kIsWeb &&
+        (defaultTargetPlatform == TargetPlatform.windows ||
+            defaultTargetPlatform == TargetPlatform.macOS ||
+            defaultTargetPlatform == TargetPlatform.linux)) {
+      if (mounted) {
+        setState(() {
+          _extracting = false;
+          _downloading = false;
+          _status = '解析失败，请检查链接有效性或网络连接';
+        });
+      }
+      return;
+    }
+
+    try {
+      if (mounted) setState(() => _status = '正在打开分享页...');
       await _controller.loadRequest(Uri.parse(widget.shareUrl));
     } catch (error) {
       debugPrint('WebView 初始化失败: $error');
-      if (mounted) setState(() => _status = 'WebView 初始化失败');
+      if (mounted) {
+        setState(() {
+          _extracting = false;
+          _status = 'WebView 初始化失败: $error';
+        });
+      }
     }
   }
 
@@ -117,17 +169,22 @@ class _DouyinWebViewPageState extends State<DouyinWebViewPage> {
     }
   }
 
-  Dio _dio() => Dio(
+  Dio _dio() {
+    final lower = widget.shareUrl.toLowerCase();
+    final isTiktok = lower.contains('tiktok.com');
+    final referer = isTiktok ? 'https://www.tiktok.com/' : widget.shareUrl;
+    return Dio(
         BaseOptions(
           connectTimeout: const Duration(seconds: 15),
           receiveTimeout: const Duration(seconds: 120),
           headers: {
             'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) '
                 'AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1',
-            'Referer': widget.shareUrl,
+            'Referer': referer,
           },
         ),
       );
+  }
 
   Future<void> _downloadVideo(String url) async {
     setState(() {
@@ -137,8 +194,9 @@ class _DouyinWebViewPageState extends State<DouyinWebViewPage> {
     });
 
     final directory = await getTemporaryDirectory();
+    final isTiktok = widget.shareUrl.toLowerCase().contains('tiktok.com');
     final filePath =
-        '${directory.path}/douyin_video_${DateTime.now().millisecondsSinceEpoch}.mp4';
+        '${directory.path}/${isTiktok ? "tiktok" : "media"}_video_${DateTime.now().millisecondsSinceEpoch}.mp4';
     try {
       await _dio().download(
         url,
@@ -223,6 +281,9 @@ class _DouyinWebViewPageState extends State<DouyinWebViewPage> {
       ),
       body: Stack(
         children: [
+          if (!kIsWeb &&
+              (defaultTargetPlatform == TargetPlatform.iOS ||
+                  defaultTargetPlatform == TargetPlatform.android))
           Positioned.fill(
             child: Opacity(
               opacity: 0.01,

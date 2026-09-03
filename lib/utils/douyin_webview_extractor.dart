@@ -99,6 +99,10 @@ class DouyinWebViewExtractor {
             if (universalDataEl && universalDataEl.innerText) {
               globals.push(universalDataEl.innerText);
             }
+            var apiDataEl = document.getElementById('api-data');
+            if (apiDataEl && apiDataEl.innerText) {
+              globals.push(apiDataEl.innerText);
+            }
 
             document.querySelectorAll('script[type="application/json"]').forEach(function(s) {
               if (s.innerText) globals.push(s.innerText);
@@ -215,6 +219,17 @@ class DouyinWebViewExtractor {
         }
       }
 
+      final imagePostInfo = value['imagePostInfo'];
+      if (imagePostInfo is Map && imagePostInfo['images'] is List) {
+        for (final item in imagePostInfo['images']) {
+          final disp = item is Map ? (item['displayImage'] ?? item['display_image']) : null;
+          final url = _firstListUrl(disp) ?? _firstListUrl(item);
+          if (url != null && !_hasMediaType(media, false, url)) {
+            media.add(ExtractedMedia(url: url, isVideo: false));
+          }
+        }
+      }
+
       final images = value['images'] ??
           value['image_list'] ??
           value['images_list'] ??
@@ -239,6 +254,18 @@ class DouyinWebViewExtractor {
   }
 
   static String? _firstListUrl(dynamic value) {
+    if (value == null) return null;
+    if (value is String && value.startsWith('http')) {
+      return Uri.decodeFull(
+          value.replaceAll(r'\/', '/').replaceAll(r'\u002F', '/'));
+    }
+    if (value is List && value.isNotEmpty) {
+      final first = value.first.toString();
+      if (first.startsWith('http')) {
+        return Uri.decodeFull(
+            first.replaceAll(r'\/', '/').replaceAll(r'\u002F', '/'));
+      }
+    }
     if (value is! Map) return null;
     final urls = value['url_list'] ??
         value['urlList'] ??
@@ -246,7 +273,10 @@ class DouyinWebViewExtractor {
         value['downloadUrlList'];
     if (urls is! List || urls.isEmpty) return null;
     final url = urls.first.toString().replaceFirst('http://', 'https://');
-    return url.startsWith('http') ? Uri.decodeFull(url) : null;
+    return url.startsWith('http')
+        ? Uri.decodeFull(
+            url.replaceAll(r'\/', '/').replaceAll(r'\u002F', '/'))
+        : null;
   }
 
   static bool _hasMediaType(List<ExtractedMedia> media, bool isVideo,
