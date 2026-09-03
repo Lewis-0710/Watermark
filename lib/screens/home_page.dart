@@ -1,7 +1,9 @@
+import 'package:flutter/foundation.dart';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'process_page.dart';
+import 'douyin_webview_page.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -19,6 +21,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   late final AnimationController _orbit4Controller;
   late final AnimationController _orbit5Controller;
   final List<String> _localFilePaths = [];
+  bool _isStarting = false;
 
   @override
   void initState() {
@@ -64,12 +67,12 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 
   Future<void> _pickLocalFiles() async {
     try {
-      final FilePickerResult? result = await FilePicker.platform.pickFiles(
+      final List<PlatformFile> files = await FilePicker.pickFiles(
         type: FileType.media,
         allowMultiple: true,
       );
-      if (result != null && result.files.isNotEmpty) {
-        for (var f in result.files) {
+      if (files.isNotEmpty) {
+        for (var f in files) {
           if (f.path != null) {
             _localFilePaths.add(f.path!);
           }
@@ -85,12 +88,26 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     }
   }
 
-  void _onStart() {
+  Future<void> _onStart() async {
+    if (_isStarting) return;
     final url = _urlController.text.trim();
     if (url.isEmpty && _localFilePaths.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('请输入链接或选择本地图片/视频')),
       );
+      return;
+    }
+    // 任意链接：通过 WebView 通用抓取器提取媒体
+    final urlMatch = RegExp(r'''https?://[^\s，。、,)"']+''').firstMatch(url);
+    if (urlMatch != null) {
+      final shareUrl = urlMatch.group(0)!;
+      setState(() => _isStarting = true);
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => DouyinWebViewPage(shareUrl: shareUrl),
+        ),
+      );
+      if (mounted) setState(() => _isStarting = false);
       return;
     }
     Navigator.of(context).push(
@@ -112,42 +129,19 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           Positioned.fill(child: _buildStarBackground()),
           // 太阳系动态
           Positioned.fill(child: _buildSolarSystem()),
-          // 内容：输入框 + 开始按钮
+          // 内容：输入框（手机端左右间距18，桌面端左右间距128）
           SafeArea(
             child: Center(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.symmetric(horizontal: 24),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Text(
-                      '水印清除大师',
-                      style: TextStyle(
-                        fontSize: 36,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
-                        letterSpacing: 2,
-                        shadows: [
-                          Shadow(
-                            color: Colors.blueAccent,
-                            blurRadius: 20,
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    const Text(
-                      '支持抖音 / Bilibili / YouTube 链接，或选择本地图片和视频',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: Colors.white70,
-                      ),
-                    ),
-                    const SizedBox(height: 40),
-                    _buildInputRow(),
-                  ],
+              child: Padding(
+                padding: EdgeInsets.symmetric(
+                  horizontal: (!kIsWeb &&
+                          (defaultTargetPlatform == TargetPlatform.windows ||
+                              defaultTargetPlatform == TargetPlatform.macOS ||
+                              defaultTargetPlatform == TargetPlatform.linux))
+                      ? 128.0
+                      : 18.0,
                 ),
+                child: _buildInputRow(),
               ),
             ),
           ),
@@ -228,7 +222,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                 radius: 360,
                 color: Colors.amber[300]!,
                 planetSize: 34,
-                withRing: true,
               ),
             ],
           ),
@@ -284,7 +277,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     required Color color,
     required double planetSize,
     bool withMoon = false,
-    bool withRing = false,
   }) {
     return AnimatedBuilder(
       animation: controller,
@@ -298,18 +290,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             clipBehavior: Clip.none,
             alignment: Alignment.center,
             children: [
-              if (withRing)
-                Container(
-                  width: planetSize * 2.2,
-                  height: planetSize * 0.6,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(100),
-                    border: Border.all(
-                      color: color.withOpacity(0.6),
-                      width: 2,
-                    ),
-                  ),
-                ),
               Container(
                 width: planetSize,
                 height: planetSize,
@@ -353,112 +333,102 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   Widget _buildInputRow() {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final inputWidth = constraints.maxWidth * 0.7;
-        return Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            Container(
-              width: inputWidth,
-              height: 64,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.08),
-                borderRadius: BorderRadius.circular(18),
-                border: Border.all(
-                  color: Colors.white.withOpacity(0.2),
-                  width: 1.5,
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.4),
-                    blurRadius: 20,
-                  ),
-                ],
-                backdropFilter: null,
+        final totalWidth = constraints.maxWidth;
+        return Center(
+          child: Container(
+            width: totalWidth,
+            height: 50,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.08),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: Colors.white.withOpacity(0.2),
+                width: 1.5,
               ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.4),
+                  blurRadius: 20,
+                ),
+              ],
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(16),
               child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
+                  // 左侧添加按钮（宽32高50，靠左对齐，背景透明，圆角与输入框一致）
+                  InkWell(
+                    onTap: _pickLocalFiles,
+                    borderRadius: const BorderRadius.horizontal(
+                        left: Radius.circular(16)),
+                    child: Container(
+                      width: 32,
+                      height: 50,
+                      alignment: Alignment.center,
+                      color: Colors.transparent,
+                      child: const Icon(
+                        Icons.add,
+                        color: Colors.white,
+                        size: 20,
+                      ),
+                    ),
+                  ),
+                  // 中间输入框
                   Expanded(
                     child: TextField(
                       controller: _urlController,
-                      style: const TextStyle(color: Colors.white, fontSize: 15),
+                      style: const TextStyle(
+                          color: Colors.white, fontSize: 15),
+                      textInputAction: TextInputAction.go,
+                      keyboardType: TextInputType.url,
                       decoration: InputDecoration(
-                        hintText: '粘贴抖音/B站/YouTube链接...',
+                        hintText: '粘贴抖音/TikTok/B站/YouTube链接...',
                         hintStyle: TextStyle(
                           color: Colors.white.withOpacity(0.5),
                           fontSize: 14,
                         ),
+                        isDense: true,
                         contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 18, vertical: 22),
+                            horizontal: 8, vertical: 14),
                         border: InputBorder.none,
                         enabledBorder: InputBorder.none,
                         focusedBorder: InputBorder.none,
                       ),
+                      onSubmitted: (_) => _isStarting ? null : _onStart(),
                     ),
                   ),
-                  // ➕ 按钮，右边上下居中
-                  Padding(
-                    padding: const EdgeInsets.only(right: 10),
-                    child: InkWell(
-                      onTap: _pickLocalFiles,
-                      borderRadius: BorderRadius.circular(14),
-                      child: Container(
-                        width: 44,
-                        height: 44,
-                        alignment: Alignment.center,
-                        decoration: BoxDecoration(
-                          color: Colors.blueAccent.withOpacity(0.8),
-                          borderRadius: BorderRadius.circular(12),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.blueAccent.withOpacity(0.4),
-                              blurRadius: 10,
+                  // 右侧开始箭头（宽32高50，靠右对齐，背景透明，圆角与输入框一致）
+                  InkWell(
+                    onTap: _isStarting ? null : _onStart,
+                    borderRadius: const BorderRadius.horizontal(
+                        right: Radius.circular(16)),
+                    child: Container(
+                      width: 32,
+                      height: 50,
+                      alignment: Alignment.center,
+                      color: Colors.transparent,
+                      child: _isStarting
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : const Icon(
+                              Icons.arrow_forward_rounded,
+                              color: Colors.white,
+                              size: 20,
                             ),
-                          ],
-                        ),
-                        child: const Icon(
-                          Icons.add,
-                          color: Colors.white,
-                          size: 26,
-                        ),
-                      ),
                     ),
                   ),
                 ],
               ),
             ),
-            const SizedBox(width: 14),
-            // 开始按钮
-            SizedBox(
-              height: 64,
-              child: ElevatedButton(
-                onPressed: _onStart,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF6C5CE7),
-                  foregroundColor: Colors.white,
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(18),
-                  ),
-                  elevation: 8,
-                  shadowColor: Colors.purpleAccent.withOpacity(0.5),
-                ),
-                child: const Row(
-                  children: [
-                    Icon(Icons.play_arrow, size: 22),
-                    SizedBox(width: 6),
-                    Text(
-                      '开始',
-                      style: TextStyle(
-                          fontSize: 16, fontWeight: FontWeight.bold),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ],
+          ),
         );
       },
     );
